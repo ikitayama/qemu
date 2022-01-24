@@ -29,6 +29,7 @@
 tmpdir=$(mktemp -d)
 linux="$1"
 output="$2"
+linux_build=${3:-$linux}
 
 if [ -z "$linux" ] || ! [ -d "$linux" ]; then
     cat << EOF
@@ -110,7 +111,7 @@ for arch in $ARCHLIST; do
         arch_var=ARCH
     fi
 
-    make -C "$linux" INSTALL_HDR_PATH="$tmpdir" $arch_var=$arch headers_install
+    make O="$linux_build" -C "$linux" INSTALL_HDR_PATH="$tmpdir" $arch_var=$arch headers_install
 
     rm -rf "$output/linux-headers/asm-$arch"
     mkdir -p "$output/linux-headers/asm-$arch"
