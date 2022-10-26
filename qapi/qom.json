@@ -918,11 +918,14 @@
 #
 # @personalization-value: Realm personalization value (default: 0)
 #
+# @sve-vector-length: SVE vector length (default: 0, SVE disabled)
+#
 # Since: FIXME
 ##
 { 'struct': 'RmeGuestProperties',
   'data': { '*personalization-value': 'str',
-            '*measurement-algo': 'RmeGuestMeasurementAlgo' } }
+            '*measurement-algo': 'RmeGuestMeasurementAlgo',
+            '*sve-vector-length': 'uint32' } }
 
 ##
 # @ObjectType:

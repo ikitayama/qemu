@@ -22,7 +22,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(RmeGuest, RME_GUEST)
 
 #define RME_PAGE_SIZE qemu_real_host_page_size()
 
-#define RME_MAX_CFG         2
+#define RME_MAX_CFG         3
 
 struct RmeGuest {
     ConfidentialGuestSupport parent_obj;
@@ -30,6 +30,7 @@ struct RmeGuest {
     GSList *ram_regions;
     uint8_t *personalization_value;
     RmeGuestMeasurementAlgo measurement_algo;
+    uint32_t sve_vl;
 };
 
 typedef struct {
@@ -87,6 +88,13 @@ static int rme_configure_one(RmeGuest *guest, uint32_t cfg, Error **errp)
             g_assert_not_reached();
         }
         cfg_str = "hash algorithm";
+        break;
+    case KVM_CAP_ARM_RME_CFG_SVE:
+        if (!guest->sve_vl) {
+            return 0;
+        }
+        args.sve_vq = guest->sve_vl / 128;
+        cfg_str = "SVE";
         break;
     default:
         g_assert_not_reached();
@@ -363,6 +371,32 @@ static void rme_set_measurement_algo(Object *obj, int algo, Error **errp)
     guest->measurement_algo = algo;
 }
 
+static void rme_get_sve_vl(Object *obj, Visitor *v, const char *name,
+                           void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+
+    visit_type_uint32(v, name, &guest->sve_vl, errp);
+}
+
+static void rme_set_sve_vl(Object *obj, Visitor *v, const char *name,
+                           void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+
+    if (value & 0x7f || value >= ARM_MAX_VQ * 128) {
+        error_setg(errp, "invalid SVE vector length");
+        return;
+    }
+
+    guest->sve_vl = value;
+}
+
 static void rme_guest_class_init(ObjectClass *oc, void *data)
 {
     object_class_property_add_str(oc, "personalization-value", rme_get_rpv,
@@ -377,6 +411,18 @@ static void rme_guest_class_init(ObjectClass *oc, void *data)
                                   rme_set_measurement_algo);
     object_class_property_set_description(oc, "measurement-algo",
             "Realm measurement algorithm ('sha256', 'sha512')");
+
+    /*
+     * This is not ideal. Normally SVE parameters are given to -cpu, but the
+     * realm parameters are needed much earlier than CPU initialization. We also
+     * don't have a way to discover what is supported at the moment, the idea is
+     * that the user knows exactly what hardware it is running on because these
+     * parameters are part of the measurement and play in the attestation.
+     */
+    object_class_property_add(oc, "sve-vector-length", "uint32", rme_get_sve_vl,
+                              rme_set_sve_vl, NULL, NULL);
+    object_class_property_set_description(oc, "sve-vector-length",
+            "SVE vector length. 0 disables SVE (the default)");
 }
 
 static void rme_guest_instance_init(Object *obj)
