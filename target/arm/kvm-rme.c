@@ -22,7 +22,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(RmeGuest, RME_GUEST)
 
 #define RME_PAGE_SIZE qemu_real_host_page_size()
 
-#define RME_MAX_CFG         3
+#define RME_MAX_BPS         0x10
+#define RME_MAX_WPS         0x10
+#define RME_MAX_CFG         4
 
 struct RmeGuest {
     ConfidentialGuestSupport parent_obj;
@@ -31,6 +33,8 @@ struct RmeGuest {
     uint8_t *personalization_value;
     RmeGuestMeasurementAlgo measurement_algo;
     uint32_t sve_vl;
+    uint32_t num_wps;
+    uint32_t num_bps;
 };
 
 typedef struct {
@@ -95,6 +99,14 @@ static int rme_configure_one(RmeGuest *guest, uint32_t cfg, Error **errp)
         }
         args.sve_vq = guest->sve_vl / 128;
         cfg_str = "SVE";
+        break;
+    case KVM_CAP_ARM_RME_CFG_DBG:
+        if (!guest->num_bps && !guest->num_wps) {
+            return 0;
+        }
+        args.num_brps = guest->num_bps;
+        args.num_wrps = guest->num_wps;
+        cfg_str = "debug parameters";
         break;
     default:
         g_assert_not_reached();
@@ -397,6 +409,58 @@ static void rme_set_sve_vl(Object *obj, Visitor *v, const char *name,
     guest->sve_vl = value;
 }
 
+static void rme_get_num_bps(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+
+    visit_type_uint32(v, name, &guest->num_bps, errp);
+}
+
+static void rme_set_num_bps(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+
+    if (value >= RME_MAX_BPS) {
+        error_setg(errp, "invalid number of breakpoints");
+        return;
+    }
+
+    guest->num_bps = value;
+}
+
+static void rme_get_num_wps(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+
+    visit_type_uint32(v, name, &guest->num_wps, errp);
+}
+
+static void rme_set_num_wps(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+
+    if (value >= RME_MAX_WPS) {
+        error_setg(errp, "invalid number of watchpoints");
+        return;
+    }
+
+    guest->num_wps = value;
+}
+
 static void rme_guest_class_init(ObjectClass *oc, void *data)
 {
     object_class_property_add_str(oc, "personalization-value", rme_get_rpv,
@@ -423,6 +487,16 @@ static void rme_guest_class_init(ObjectClass *oc, void *data)
                               rme_set_sve_vl, NULL, NULL);
     object_class_property_set_description(oc, "sve-vector-length",
             "SVE vector length. 0 disables SVE (the default)");
+
+    object_class_property_add(oc, "num-breakpoints", "uint32", rme_get_num_bps,
+                              rme_set_num_bps, NULL, NULL);
+    object_class_property_set_description(oc, "num-breakpoints",
+            "Number of breakpoints");
+
+    object_class_property_add(oc, "num-watchpoints", "uint32", rme_get_num_wps,
+                              rme_set_num_wps, NULL, NULL);
+    object_class_property_set_description(oc, "num-watchpoints",
+            "Number of watchpoints");
 }
 
 static void rme_guest_instance_init(Object *obj)
