@@ -16,6 +16,7 @@
 #include "qom/object_interfaces.h"
 #include "sysemu/kvm.h"
 #include "sysemu/runstate.h"
+#include "internals.h"
 
 #define TYPE_RME_GUEST "rme-guest"
 OBJECT_DECLARE_SIMPLE_TYPE(RmeGuest, RME_GUEST)
@@ -24,7 +25,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(RmeGuest, RME_GUEST)
 
 #define RME_MAX_BPS         0x10
 #define RME_MAX_WPS         0x10
-#define RME_MAX_CFG         4
+#define RME_MAX_PMU_CTRS    0x20
+#define RME_MAX_CFG         5
 
 struct RmeGuest {
     ConfidentialGuestSupport parent_obj;
@@ -35,6 +37,7 @@ struct RmeGuest {
     uint32_t sve_vl;
     uint32_t num_wps;
     uint32_t num_bps;
+    uint32_t num_pmu_cntrs;
 };
 
 typedef struct {
@@ -114,6 +117,28 @@ static int rme_configure_one(RmeGuest *guest, uint32_t cfg, Error **errp)
         args.num_brps = guest->num_bps;
         args.num_wrps = guest->num_wps;
         cfg_str = "debug parameters";
+        break;
+    case KVM_CAP_ARM_RME_CFG_PMU:
+        /*
+         * The PMU can be disabled with the -cpu pmu parameter. If it's
+         * supported and enabled, then we need to set a number of PMU counters
+         * in the Realm parameters. This number is obtained by reading KVM's
+         * PMCR_EL0, and can be overriden on the command-line.
+         */
+        if (!cpu->has_pmu) {
+            return 0;
+        }
+
+        if (guest->num_pmu_cntrs) {
+            if (guest->num_pmu_cntrs > pmu_num_counters(&cpu->env)) {
+                error_setg(errp, "RME: invalid number of PMU counters");
+                return -EINVAL;
+            }
+            args.num_pmu_cntrs = guest->num_pmu_cntrs;
+        } else {
+            args.num_pmu_cntrs = pmu_num_counters(&cpu->env);
+        }
+        cfg_str = "PMU";
         break;
     default:
         g_assert_not_reached();
@@ -480,6 +505,32 @@ static void rme_set_num_wps(Object *obj, Visitor *v, const char *name,
     guest->num_wps = value;
 }
 
+static void rme_get_num_pmu_cntrs(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+
+    visit_type_uint32(v, name, &guest->num_pmu_cntrs, errp);
+}
+
+static void rme_set_num_pmu_cntrs(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+
+    if (value >= RME_MAX_PMU_CTRS) {
+        error_setg(errp, "invalid number of PMU counters");
+        return;
+    }
+
+    guest->num_pmu_cntrs = value;
+}
+
 static void rme_guest_class_init(ObjectClass *oc, void *data)
 {
     object_class_property_add_str(oc, "personalization-value", rme_get_rpv,
@@ -516,6 +567,12 @@ static void rme_guest_class_init(ObjectClass *oc, void *data)
                               rme_set_num_wps, NULL, NULL);
     object_class_property_set_description(oc, "num-watchpoints",
             "Number of watchpoints");
+
+    object_class_property_add(oc, "num-pmu-counters", "uint32",
+                              rme_get_num_pmu_cntrs, rme_set_num_pmu_cntrs,
+                              NULL, NULL);
+    object_class_property_set_description(oc, "num-pmu-counters",
+            "Number of PMU counters");
 }
 
 static void rme_guest_instance_init(Object *obj)
