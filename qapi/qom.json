@@ -900,16 +900,29 @@
             '*node-affinity': ['uint16'] } }
 
 ##
+# @RmeGuestMeasurementAlgo:
+#
+# Algorithm to use for realm measurements
+#
+# Since: FIXME
+##
+{ 'enum': 'RmeGuestMeasurementAlgo',
+  'data': ['default', 'sha256', 'sha512'] }
+
+##
 # @RmeGuestProperties:
 #
 # Properties for rme-guest objects.
+#
+# @measurement-algo: Realm measurement algorithm (default: RMM default)
 #
 # @personalization-value: Realm personalization value (default: 0)
 #
 # Since: FIXME
 ##
 { 'struct': 'RmeGuestProperties',
-  'data': { '*personalization-value': 'str' } }
+  'data': { '*personalization-value': 'str',
+            '*measurement-algo': 'RmeGuestMeasurementAlgo' } }
 
 ##
 # @ObjectType:
