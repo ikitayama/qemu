@@ -1309,6 +1309,11 @@ static void riscv_set_kvm_aia(Object *obj, const char *val, Error **errp)
     }
 }
 
+bool kvm_arch_readonly_mem_allowed(KVMState *s)
+{
+    return true;
+}
+
 void kvm_arch_accel_class_init(ObjectClass *oc)
 {
     object_class_property_add_str(oc, "riscv-aia", riscv_get_kvm_aia,
