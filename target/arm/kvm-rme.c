@@ -53,6 +53,15 @@ bool kvm_arm_rme_enabled(void)
     return !!rme_guest;
 }
 
+/*
+ * KVM does not support creating read-only stage-2 mappings for realms at the
+ * moment
+ */
+bool kvm_arch_readonly_mem_allowed(KVMState *s)
+{
+    return !rme_guest;
+}
+
 static int rme_create_rd(Error **errp)
 {
     int ret = kvm_vm_enable_cap(kvm_state, KVM_CAP_ARM_RME, 0,

@@ -2629,6 +2629,11 @@ bool kvm_arch_cpu_check_are_resettable(void)
     return true;
 }
 
+bool kvm_arch_readonly_mem_allowed(KVMState *s)
+{
+    return true;
+}
+
 int kvm_s390_get_zpci_op(void)
 {
     return cap_zpci_op;

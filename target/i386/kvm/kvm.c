@@ -5605,6 +5605,11 @@ bool kvm_arch_cpu_check_are_resettable(void)
     return !sev_es_enabled();
 }
 
+bool kvm_arch_readonly_mem_allowed(KVMState *s)
+{
+    return true;
+}
+
 #define ARCH_REQ_XCOMP_GUEST_PERM       0x1025
 
 void kvm_request_xsave_components(X86CPU *cpu, uint64_t mask)
