@@ -23,14 +23,111 @@ struct RmeGuest {
     ConfidentialGuestSupport parent_obj;
 };
 
+static RmeGuest *rme_guest;
+
+bool kvm_arm_rme_enabled(void)
+{
+    return !!rme_guest;
+}
+
+static int rme_create_rd(Error **errp)
+{
+    int ret = kvm_vm_enable_cap(kvm_state, KVM_CAP_ARM_RME, 0,
+                                KVM_CAP_ARM_RME_CREATE_RD);
+
+    if (ret) {
+        error_setg_errno(errp, -ret, "RME: failed to create Realm Descriptor");
+    }
+    return ret;
+}
+
+static void rme_vm_state_change(void *opaque, bool running, RunState state)
+{
+    int ret;
+    CPUState *cs;
+
+    if (state != RUN_STATE_RUNNING) {
+        return;
+    }
+
+    /*
+     * Now that do_cpu_reset() initialized the boot PC and
+     * kvm_cpu_synchronize_post_reset() registered it, we can finalize the REC.
+     */
+    CPU_FOREACH(cs) {
+        ret = kvm_arm_vcpu_finalize(cs, KVM_ARM_VCPU_REC);
+        if (ret) {
+            error_report("RME: failed to finalize vCPU: %s", strerror(-ret));
+            exit(1);
+        }
+    }
+
+    ret = kvm_vm_enable_cap(kvm_state, KVM_CAP_ARM_RME, 0,
+                            KVM_CAP_ARM_RME_ACTIVATE_REALM);
+    if (ret) {
+        error_report("RME: failed to activate realm: %s", strerror(-ret));
+        exit(1);
+    }
+}
+
+int kvm_arm_rme_init(ConfidentialGuestSupport *cgs, Error **errp)
+{
+    int ret;
+    static Error *rme_mig_blocker;
+
+    if (!rme_guest) {
+        return -ENODEV;
+    }
+
+    if (!kvm_check_extension(kvm_state, KVM_CAP_ARM_RME)) {
+        error_setg(errp, "KVM does not support RME");
+        return -ENODEV;
+    }
+
+    ret = rme_create_rd(errp);
+    if (ret) {
+        return ret;
+    }
+
+    error_setg(&rme_mig_blocker, "RME: migration is not implemented");
+    migrate_add_blocker(rme_mig_blocker, &error_fatal);
+
+    /*
+     * The realm activation is done last, when the VM starts, after all images
+     * have been loaded and all vcpus finalized.
+     */
+    qemu_add_vm_change_state_handler(rme_vm_state_change, NULL);
+
+    cgs->ready = true;
+    return 0;
+}
+
+int kvm_arm_rme_vm_type(MachineState *ms)
+{
+    if (rme_guest) {
+        return KVM_VM_TYPE_ARM_REALM;
+    }
+    return 0;
+}
+
 static void rme_guest_class_init(ObjectClass *oc, void *data)
 {
+}
+
+static void rme_guest_instance_init(Object *obj)
+{
+    if (rme_guest) {
+        error_report("a single instance of RmeGuest is supported");
+        exit(1);
+    }
+    rme_guest = RME_GUEST(obj);
 }
 
 static const TypeInfo rme_guest_info = {
     .parent = TYPE_CONFIDENTIAL_GUEST_SUPPORT,
     .name = TYPE_RME_GUEST,
     .instance_size = sizeof(struct RmeGuest),
+    .instance_init = rme_guest_instance_init,
     .class_init = rme_guest_class_init,
     .interfaces = (InterfaceInfo[]) {
         { TYPE_USER_CREATABLE },
