@@ -462,11 +462,35 @@ static uint64_t *kvm_arm_get_cpreg_ptr(ARMCPU *cpu, uint64_t regidx)
 {
     uint64_t *res;
 
+    assert(cpu->cpreg_array_len);
+
     res = bsearch(&regidx, cpu->cpreg_indexes, cpu->cpreg_array_len,
                   sizeof(uint64_t), compare_u64);
     assert(res);
 
     return &cpu->cpreg_values[res - cpu->cpreg_indexes];
+}
+
+static int kvm_arm_rme_clear_cpreg_list(ARMCPU *cpu)
+{
+    /*
+     * We can't call KVM_GET_REG_LIST at this point because it wants the vCPU to
+     * be finalized, and we can't finalize a REC until much later. However, the
+     * reg list is staightforward: only x0-x7 and pc can be set. Since those are
+     * sync'd by hand (see kvm_arm_reg_syncs_via_cpreg_list()), the indices
+     * array is effectively empty.
+     */
+    g_free(cpu->cpreg_indexes);
+    g_free(cpu->cpreg_values);
+    g_free(cpu->cpreg_vmstate_indexes);
+    g_free(cpu->cpreg_vmstate_values);
+    cpu->cpreg_indexes = NULL;
+    cpu->cpreg_values = NULL;
+    cpu->cpreg_vmstate_indexes = NULL;
+    cpu->cpreg_vmstate_values = NULL;
+    cpu->cpreg_array_len = 0;
+
+    return 0;
 }
 
 /* Initialize the ARMCPU cpreg list according to the kernel's
@@ -479,6 +503,10 @@ int kvm_arm_init_cpreg_list(ARMCPU *cpu)
     struct kvm_reg_list *rlp;
     int i, ret, arraylen;
     CPUState *cs = CPU(cpu);
+
+    if (cpu->kvm_rme) {
+        return kvm_arm_rme_clear_cpreg_list(cpu);
+    }
 
     rl.n = 0;
     ret = kvm_vcpu_ioctl(cs, KVM_GET_REG_LIST, &rl);
