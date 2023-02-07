@@ -27,6 +27,11 @@ int aarch64_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
     ARMCPU *cpu = ARM_CPU(cs);
     CPUARMState *env = &cpu->env;
 
+    if (cpu->kvm_rme) {
+        /* Confidential state */
+        return 0;
+    }
+
     if (n < 31) {
         /* Core integer register.  */
         return gdb_get_reg64(mem_buf, env->xregs[n]);
@@ -48,6 +53,11 @@ int aarch64_cpu_gdb_write_register(CPUState *cs, uint8_t *mem_buf, int n)
     ARMCPU *cpu = ARM_CPU(cs);
     CPUARMState *env = &cpu->env;
     uint64_t tmp;
+
+    if (cpu->kvm_rme) {
+        /* Confidential state */
+        return 0;
+    }
 
     tmp = ldq_p(mem_buf);
 
