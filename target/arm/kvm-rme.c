@@ -22,10 +22,13 @@ OBJECT_DECLARE_SIMPLE_TYPE(RmeGuest, RME_GUEST)
 
 #define RME_PAGE_SIZE qemu_real_host_page_size()
 
+#define RME_MAX_CFG         1
+
 struct RmeGuest {
     ConfidentialGuestSupport parent_obj;
     Notifier rom_load_notifier;
     GSList *ram_regions;
+    uint8_t *personalization_value;
 };
 
 typedef struct {
@@ -49,6 +52,34 @@ static int rme_create_rd(Error **errp)
 
     if (ret) {
         error_setg_errno(errp, -ret, "RME: failed to create Realm Descriptor");
+    }
+    return ret;
+}
+
+static int rme_configure_one(RmeGuest *guest, uint32_t cfg, Error **errp)
+{
+    int ret;
+    const char *cfg_str;
+    struct kvm_cap_arm_rme_config_item args = {
+        .cfg = cfg,
+    };
+
+    switch (cfg) {
+    case KVM_CAP_ARM_RME_CFG_RPV:
+        if (!guest->personalization_value) {
+            return 0;
+        }
+        memcpy(args.rpv, guest->personalization_value, KVM_CAP_ARM_RME_RPV_SIZE);
+        cfg_str = "personalization value";
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    ret = kvm_vm_enable_cap(kvm_state, KVM_CAP_ARM_RME, 0,
+                            KVM_CAP_ARM_RME_CONFIG_REALM, (intptr_t)&args);
+    if (ret) {
+        error_setg_errno(errp, -ret, "RME: failed to configure %s", cfg_str);
     }
     return ret;
 }
@@ -169,6 +200,7 @@ static void rme_rom_load_notify(Notifier *notifier, void *data)
 int kvm_arm_rme_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
     int ret;
+    int cfg;
     static Error *rme_mig_blocker;
 
     if (!rme_guest) {
@@ -178,6 +210,13 @@ int kvm_arm_rme_init(ConfidentialGuestSupport *cgs, Error **errp)
     if (!kvm_check_extension(kvm_state, KVM_CAP_ARM_RME)) {
         error_setg(errp, "KVM does not support RME");
         return -ENODEV;
+    }
+
+    for (cfg = 0; cfg < RME_MAX_CFG; cfg++) {
+        ret = rme_configure_one(rme_guest, cfg, errp);
+        if (ret) {
+            return ret;
+        }
     }
 
     ret = rme_create_rd(errp);
@@ -229,8 +268,77 @@ int kvm_arm_rme_vm_type(MachineState *ms)
     return 0;
 }
 
+static char *rme_get_rpv(Object *obj, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+    GString *s;
+    char *out;
+    int i;
+
+    if (!guest->personalization_value) {
+        return NULL;
+    }
+
+    s = g_string_sized_new(KVM_CAP_ARM_RME_RPV_SIZE * 2 + 1);
+
+    for (i = KVM_CAP_ARM_RME_RPV_SIZE - 1; i >= 0; i--) {
+        g_string_append_printf(s, "%02x", guest->personalization_value[i]);
+    }
+
+    out = s->str;
+    g_string_free(s, /* free_segment */ false);
+    return out;
+}
+
+static void rme_set_rpv(Object *obj, const char *value, Error **errp)
+{
+    RmeGuest *guest = RME_GUEST(obj);
+    size_t in_len = strlen(value);
+    uint8_t *out;
+    int ret;
+
+    g_free(guest->personalization_value);
+    guest->personalization_value = out = g_malloc0(KVM_CAP_ARM_RME_RPV_SIZE);
+
+    /* Two chars per byte */
+    if (in_len > KVM_CAP_ARM_RME_RPV_SIZE * 2) {
+        error_setg(errp, "Realm Personalization Value is too large");
+        return;
+    }
+
+    /*
+     * Parse as big-endian hexadecimal number (most significant byte on the
+     * left), store little-endian, zero-padded on the right.
+     */
+    while (in_len) {
+        /*
+         * Do the lower nibble first to catch invalid inputs such as '2z', and
+         * to handle the last char.
+         */
+        in_len--;
+        ret = sscanf(value + in_len, "%1hhx", out);
+        if (ret != 1) {
+            error_setg(errp, "Invalid Realm Personalization Value");
+            return;
+        }
+        if (!in_len) {
+            break;
+        }
+        in_len--;
+        ret = sscanf(value + in_len, "%2hhx", out++);
+        if (ret != 1) {
+            error_setg(errp, "Invalid Realm Personalization Value");
+            return;
+        }
+    }
+}
+
 static void rme_guest_class_init(ObjectClass *oc, void *data)
 {
+    object_class_property_add_str(oc, "personalization-value", rme_get_rpv,
+                                  rme_set_rpv);
+    object_class_property_set_description(oc, "personalization-value",
+            "Realm personalization value (512-bit hexadecimal number)");
 }
 
 static void rme_guest_instance_init(Object *obj)
