@@ -202,6 +202,16 @@ int kvm_arm_rme_init(ConfidentialGuestSupport *cgs, Error **errp)
     return 0;
 }
 
+/*
+ * kvm_arm_rme_init_guest_ram - Initialize a Realm IPA range
+ */
+void kvm_arm_rme_init_guest_ram(hwaddr base, size_t size)
+{
+    if (rme_guest) {
+        rme_add_ram_region(base, size, /* populate */ false);
+    }
+}
+
 int kvm_arm_rme_vcpu_init(CPUState *cs)
 {
     ARMCPU *cpu = ARM_CPU(cs);
