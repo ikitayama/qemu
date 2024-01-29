@@ -262,6 +262,13 @@ int kvm_arm_rme_init(MachineState *ms)
     rme_guest->rom_load_notifier.notify = rme_rom_load_notify;
     rom_add_load_notifier(&rme_guest->rom_load_notifier);
 
+    /*
+     * Check extension for now, to be compatible with versions of the CCA
+     * patchset that don't support guest memfd. Later we can remove this test.
+     */
+    if (kvm_check_extension(kvm_state, KVM_CAP_GUEST_MEMFD)) {
+        ms->require_guest_memfd = true;
+    }
     cgs->ready = true;
     return 0;
 }
