@@ -523,7 +523,22 @@ int arm_load_dtb(hwaddr addr, const struct arm_boot_info *binfo,
     char **node_path;
     Error *err = NULL;
 
-    if (binfo->dtb_filename) {
+    if (binfo->dtb_filename && binfo->confidential) {
+        /*
+         * If the user is providing a DTB for a confidential VM, it is already
+         * tailored to this configuration and measured. Load it as is, without
+         * any modification.
+         */
+        ssize_t filesize = rom_add_file_fixed_as(binfo->dtb_filename, addr, -1, as);
+        if (filesize < 0) {
+            return -1;
+        }
+        if (addr_limit > addr && filesize > (addr_limit - addr)) {
+            fprintf(stderr, "DTB does not fit\n");
+            return -1;
+        }
+        return 0;
+    } else if (binfo->dtb_filename) {
         char *filename;
         filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, binfo->dtb_filename);
         if (!filename) {
