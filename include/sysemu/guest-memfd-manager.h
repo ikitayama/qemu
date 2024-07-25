@@ -43,4 +43,7 @@ struct GuestMemfdManagerClass {
     void (*realize)(Object *gmm, MemoryRegion *mr, uint64_t region_size);
 };
 
+int guest_memfd_state_change(GuestMemfdManager *gmm, uint64_t offset, uint64_t size,
+                             bool shared_to_private);
+
 #endif
