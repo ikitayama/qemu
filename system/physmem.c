@@ -54,6 +54,7 @@
 #include "sysemu/hw_accel.h"
 #include "sysemu/xen-mapcache.h"
 #include "trace.h"
+#include "sysemu/guest-memfd-manager.h"
 
 #ifdef CONFIG_FALLOCATE_PUNCH_HOLE
 #include <linux/falloc.h>
@@ -1885,6 +1886,12 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             qemu_mutex_unlock_ramlist();
             goto out_free;
         }
+
+        GuestMemfdManager *gmm = GUEST_MEMFD_MANAGER(object_new(TYPE_GUEST_MEMFD_MANAGER));
+        GuestMemfdManagerClass *gmmc = GUEST_MEMFD_MANAGER_GET_CLASS(gmm);
+        g_assert(new_block->mr);
+        gmmc->realize(OBJECT(gmm), new_block->mr, new_block->mr->size);
+        memory_region_set_ram_discard_manager(gmm->mr, RAM_DISCARD_MANAGER(gmm));
     }
 
     ram_size = (new_block->offset + new_block->max_length) >> TARGET_PAGE_BITS;
@@ -2139,6 +2146,8 @@ static void reclaim_ramblock(RAMBlock *block)
 
     if (block->guest_memfd >= 0) {
         close(block->guest_memfd);
+        g_assert(block->mr);
+        object_unref(OBJECT(block->mr->rdm));
         ram_block_discard_require(false);
     }
 
