@@ -393,6 +393,7 @@ static void guest_memfd_manager_realize(Object *obj, MemoryRegion *mr,
     gmm->mr = mr;
     gmm->discard_bitmap_size = bitmap_size;
     gmm->discard_bitmap = bitmap_new(bitmap_size);
+    bitmap_fill(gmm->discard_bitmap, bitmap_size);
 }
 
 static void guest_memfd_manager_init(Object *obj)
