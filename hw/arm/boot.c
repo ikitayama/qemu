@@ -665,6 +665,24 @@ int arm_load_dtb(hwaddr addr, const struct arm_boot_info *binfo,
 
     fdt_add_psci_node(fdt);
 
+    /* Add a reserved-memory node for the event log */
+    if (binfo->log_size) {
+        char *nodename;
+
+        qemu_fdt_add_subnode(fdt, "/reserved-memory");
+        qemu_fdt_setprop_cell(fdt, "/reserved-memory", "#address-cells", 0x2);
+        qemu_fdt_setprop_cell(fdt, "/reserved-memory", "#size-cells", 0x2);
+        qemu_fdt_setprop(fdt, "/reserved-memory", "ranges", NULL, 0);
+
+        nodename = g_strdup_printf("/reserved-memory/event-log@%" PRIx64,
+                                   binfo->log_start);
+        qemu_fdt_add_subnode(fdt, nodename);
+        qemu_fdt_setprop_string(fdt, nodename, "compatible", "cc-event-log");
+        qemu_fdt_setprop_sized_cells(fdt, nodename, "reg", 2, binfo->log_start,
+                                           2, binfo->log_size);
+        g_free(nodename);
+    }
+
     if (binfo->modify_dtb) {
         binfo->modify_dtb(binfo, fdt);
     }
@@ -991,6 +1009,7 @@ static void arm_setup_direct_kernel_boot(ARMCPU *cpu,
             }
             info->dtb_start = info->loader_start;
             info->dtb_limit = image_low_addr;
+            /* TODO: measurement log? */
         }
     }
     entry = elf_entry;
@@ -1128,6 +1147,20 @@ static void arm_setup_direct_kernel_boot(ARMCPU *cpu,
             if (info->dtb_start >= ram_end) {
                 error_report("Not enough space for DTB after kernel/initrd");
                 exit(1);
+            }
+            if (info->log_size) {
+                int dtb_size = 0;
+
+                if (!info->get_dtb(info, &dtb_size) || dtb_size == 0) {
+                    error_report("Board does not have a DTB");
+                    exit(1);
+                }
+                info->dtb_limit = info->dtb_start + dtb_size;
+                info->log_start = info->dtb_limit;
+                if (info->log_start + info->log_size > ram_end) {
+                    error_report("Not enough space for measurement log and DTB");
+                    exit(1);
+                }
             }
             fixupcontext[FIXUP_ARGPTR_LO] = info->dtb_start;
             fixupcontext[FIXUP_ARGPTR_HI] = info->dtb_start >> 32;
