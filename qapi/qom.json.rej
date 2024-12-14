@@ -1,0 +1,46 @@
+diff a/qapi/qom.json b/qapi/qom.json	(rejected hunks)
+@@ -1047,22 +1047,34 @@
+ #
+ # Properties for rme-guest objects.
+ #
+-# @measurement-algo: Realm measurement algorithm (default: sha512)
++# @dh-cert-file: guest owners DH certificate (encoded with base64)
+ #
+-# @personalization-value: Realm personalization value, as a 64-byte hex string
+-#     (default: 0)
++# @session-file: guest owners session parameters (encoded with base64)
+ #
+-# @measurement-log: Enable a measurement log for the Realm. All events that
+-#     contribute to the Realm Initial Measurement (RIM) are added to a log in
+-#     TCG TPM2 format, which is itself loaded into Realm memory (unmeasured)
+-#     and can then be read by a verifier to reconstruct the RIM.
++# @policy: SEV policy value (default: 0x1)
++#
++# @handle: SEV firmware handle (default: 0)
++#
++# @legacy-vm-type: Use legacy KVM_SEV_INIT KVM interface for creating
++#    the VM.  The newer KVM_SEV_INIT2 interface, from Linux >= 6.10,
++#    syncs additional vCPU state when initializing the VMSA
++#    structures, which will result in a different guest measurement.
++#    Set this to 'on' to force compatibility with older QEMU or kernel
++#    versions that rely on legacy KVM_SEV_INIT behavior.  'auto' will
++#    behave identically to 'on', but will automatically switch to
++#    using KVM_SEV_INIT2 if the user specifies any additional options
++#    that require it.  If set to 'off', QEMU will require
++#    KVM_SEV_INIT2 unconditionally.
++#    (default: off) (since 9.1)
+ #
+ # Since: FIXME
+ ##
+ { 'struct': 'RmeGuestProperties',
+-  'data': { '*personalization-value': 'str',
+-            '*measurement-algo': 'RmeGuestMeasurementAlgo',
+-            '*measurement-log': 'bool'} }
++  'data': { '*dh-cert-file': 'str',
++            '*session-file': 'str',
++            '*policy': 'uint32',
++            '*handle': 'uint32',
++            '*legacy-vm-type': 'OnOffAuto' } }
+ 
+ ##
+ # @ObjectType:

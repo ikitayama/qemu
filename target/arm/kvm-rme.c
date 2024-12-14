@@ -19,6 +19,7 @@
 #include "qom/object_interfaces.h"
 #include "sysemu/kvm.h"
 #include "sysemu/runstate.h"
+#include "qapi/qapi-commands-misc-target.h"
 
 #define TYPE_RME_GUEST "rme-guest"
 OBJECT_DECLARE_SIMPLE_TYPE(RmeGuest, RME_GUEST)
@@ -840,4 +841,80 @@ Object *kvm_arm_rme_get_measurement_log(void)
         return OBJECT(rme_guest->log);
     }
     return NULL;
+}
+
+
+
+static RmeCapability *rme_get_capabilities(Error **errp)
+{
+    RmeCapability *cap = NULL;
+    guchar *pdh_data = NULL;
+    guchar *cert_chain_data = NULL;
+    guchar *cpu0_id_data = NULL;
+    size_t pdh_len = 0, cert_chain_len = 0, cpu0_id_len = 0;
+    uint32_t ebx = 90;
+    //int fd;
+//    RmeCommonState *sev_common;
+    //char *sev_device;
+
+    if (!kvm_enabled()) {
+        error_setg(errp, "KVM not enabled");
+        return NULL;
+    }
+    if (kvm_vm_ioctl(kvm_state, KVM_MEMORY_ENCRYPT_OP, NULL) < 0) {
+        error_setg(errp, "SEV is not enabled in KVM");
+        return NULL;
+    }
+
+  /*  sev_common = SEV_COMMON(MACHINE(qdev_get_machine())->cgs);
+    if (sev_common) {
+        sev_device = object_property_get_str(OBJECT(sev_common), "sev-device",
+                                             &error_abort);
+    } else {
+        sev_device = g_strdup(DEFAULT_SEV_DEVICE);
+    }
+*/
+  /*  fd = open(sev_device, O_RDWR);
+    if (fd < 0) {
+        error_setg_errno(errp, errno, "SEV: Failed to open %s",
+                         sev_device);
+        g_free(sev_device);
+        return NULL;
+    }
+    g_free(sev_device);
+*/
+/*    if (rme_get_pdh_info(fd, &pdh_data, &pdh_len,
+                         &cert_chain_data, &cert_chain_len, errp)) {
+        goto out;
+    }
+
+    if (rme_get_cpu0_id(fd, &cpu0_id_data, &cpu0_id_len, errp)) {
+        goto out;
+    }
+*/
+    cap = g_new0(RmeCapability, 1);
+    cap->pdh = g_base64_encode(pdh_data, pdh_len);
+    cap->cert_chain = g_base64_encode(cert_chain_data, cert_chain_len);
+    cap->cpu0_id = g_base64_encode(cpu0_id_data, cpu0_id_len);
+
+ //   host_cpuid(0x8000001F, 0, NULL, &ebx, NULL, NULL);
+    cap->cbitpos = ebx & 0x3f;
+
+    /*
+     * When SEV feature is enabled, we loose one bit in guest physical
+     * addressing.
+     */
+    cap->reduced_phys_bits = 1;
+
+//out:
+    //g_free(cpu0_id_data);
+    //g_free(pdh_data);
+    //g_free(cert_chain_data);
+    //close(fd);
+    return cap;
+}
+
+RmeCapability *qmp_query_rme_capabilities(Error **errp)
+{
+    return rme_get_capabilities(errp);
 }
